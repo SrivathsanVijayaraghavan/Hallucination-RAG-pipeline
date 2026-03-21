@@ -1,17 +1,16 @@
 """
 ui/streamlit_app.py
-Phase 6 -- Streamlit UI for Hallucination Detector
+Deployment version -- Hugging Face Spaces
 
-Run with:
-    streamlit run ui/streamlit_app.py
+Uses HuggingFace Inference API instead of local Ollama.
 """
 
 import streamlit as st
 import tempfile
 import os
 import sys
+from huggingface_hub import InferenceClient
 
-# Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from rag.loader import load_pdf
@@ -22,7 +21,6 @@ from detectors.factual_checker import run_factual_check
 from detectors.numerical_checker import run_numerical_check
 from detectors.contradiction_checker import run_contradiction_check
 from scoring.confidence import compute_confidence_scores
-from langchain_community.llms import Ollama
 from nltk import sent_tokenize
 import nltk
 nltk.download("punkt", quiet=True)
@@ -33,7 +31,7 @@ nltk.download("punkt_tab", quiet=True)
 # ─────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="Hallucination RAG-pipeline",
+    page_title="Hallucination RAG-Pipeline",
     page_icon="🔍",
     layout="wide"
 )
@@ -46,41 +44,19 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@300;400;500;600&display=swap');
 
-    html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
-    }
-
-    .main {
-        background-color: #0d0d0d;
-        color: #e8e8e8;
-    }
-
-    h1, h2, h3 {
-        font-family: 'JetBrains Mono', monospace;
-    }
+    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+    h1, h2, h3 { font-family: 'JetBrains Mono', monospace; }
 
     .verdict-card {
         border-radius: 8px;
         padding: 16px 20px;
         margin: 10px 0;
         border-left: 4px solid;
-        font-family: 'Inter', sans-serif;
     }
 
-    .verdict-green {
-        background: rgba(34, 197, 94, 0.08);
-        border-color: #22c55e;
-    }
-
-    .verdict-yellow {
-        background: rgba(234, 179, 8, 0.08);
-        border-color: #eab308;
-    }
-
-    .verdict-red {
-        background: rgba(239, 68, 68, 0.08);
-        border-color: #ef4444;
-    }
+    .verdict-green  { background: rgba(34, 197, 94, 0.08);  border-color: #22c55e; }
+    .verdict-yellow { background: rgba(234, 179, 8, 0.08);  border-color: #eab308; }
+    .verdict-red    { background: rgba(239, 68, 68, 0.08);  border-color: #ef4444; }
 
     .score-badge {
         font-family: 'JetBrains Mono', monospace;
@@ -97,22 +73,9 @@ st.markdown("""
         line-height: 1.5;
     }
 
-    .score-row {
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-        margin-top: 8px;
-    }
-
-    .score-item {
-        font-size: 0.78rem;
-        font-family: 'JetBrains Mono', monospace;
-        color: #888;
-    }
-
-    .score-item span {
-        color: #ccc;
-    }
+    .score-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+    .score-item { font-size: 0.78rem; font-family: 'JetBrains Mono', monospace; color: #888; }
+    .score-item span { color: #ccc; }
 
     .overall-box {
         border-radius: 10px;
@@ -122,25 +85,9 @@ st.markdown("""
         font-family: 'JetBrains Mono', monospace;
     }
 
-    .overall-green { background: rgba(34, 197, 94, 0.12); border: 1px solid #22c55e44; }
-    .overall-yellow { background: rgba(234, 179, 8, 0.12); border: 1px solid #eab30844; }
-    .overall-red { background: rgba(239, 68, 68, 0.12); border: 1px solid #ef444444; }
-
-    .stButton > button {
-        background: #1a1a1a;
-        color: #e8e8e8;
-        border: 1px solid #333;
-        border-radius: 6px;
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 0.85rem;
-        padding: 8px 20px;
-        transition: all 0.2s;
-    }
-
-    .stButton > button:hover {
-        border-color: #666;
-        background: #222;
-    }
+    .overall-green  { background: rgba(34, 197, 94, 0.12);  border: 1px solid #22c55e44; }
+    .overall-yellow { background: rgba(234, 179, 8, 0.12);  border: 1px solid #eab30844; }
+    .overall-red    { background: rgba(239, 68, 68, 0.12);  border: 1px solid #ef444444; }
 
     .answer-box {
         background: #111;
@@ -152,21 +99,64 @@ st.markdown("""
         line-height: 1.6;
         margin: 10px 0;
     }
-
-    .stTextInput > div > div > input {
-        background: #111 !important;
-        color: #e8e8e8 !important;
-        border: 1px solid #333 !important;
-        border-radius: 6px !important;
-        font-family: 'Inter', sans-serif !important;
-    }
-
-    hr {
-        border-color: #222;
-        margin: 24px 0;
-    }
 </style>
 """, unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────
+# Not-found phrases
+# ─────────────────────────────────────────────
+
+NOT_FOUND_PHRASES = [
+    "not in the provided document",
+    "not mentioned in",
+    "not available in",
+    "context does not",
+    "context only mentions",
+    "no information",
+    "cannot find",
+    "not found in",
+    "does not contain",
+    "not provided in"
+]
+
+
+def is_not_found_answer(answer: str) -> bool:
+    return any(phrase in answer.lower() for phrase in NOT_FOUND_PHRASES)
+
+
+# ─────────────────────────────────────────────
+# LLM via HuggingFace Inference API
+# ─────────────────────────────────────────────
+
+def generate_answer(question: str, chunks: list[str], hf_token: str) -> str:
+    context = "\n\n---\n\n".join(chunks)
+    prompt = f"""You are a precise question-answering assistant.
+Answer the question using ONLY the information in the context below.
+Write your answer in clear, natural language sentences.
+Do NOT copy tables or raw data — summarize the information instead.
+If the answer is not in the context, say: "This information is not in the provided document."
+
+CONTEXT:
+{context}
+
+QUESTION:
+{question}
+
+ANSWER:"""
+
+    client = InferenceClient(
+        model="mistralai/Mistral-7B-Instruct-v0.3",
+        token=hf_token
+    )
+
+    response = client.text_generation(
+        prompt,
+        max_new_tokens=300,
+        temperature=0.1,
+        do_sample=False
+    )
+    return response.strip()
 
 
 # ─────────────────────────────────────────────
@@ -177,30 +167,38 @@ if "indexed" not in st.session_state:
     st.session_state.indexed    = False
     st.session_state.collection = None
     st.session_state.model      = None
-    st.session_state.llm        = None
+    st.session_state.num_chunks = 0
 
 
 # ─────────────────────────────────────────────
 # Header
 # ─────────────────────────────────────────────
 
-st.markdown("## 🔍 Hallucination RAG-pipeline")
+st.markdown("## 🔍 Hallucination RAG-Pipeline")
 st.markdown("Upload a PDF, ask a question, get a verified answer with hallucination scores.")
 st.markdown("---")
 
 
 # ─────────────────────────────────────────────
-# Sidebar — PDF Upload + Index
+# Sidebar
 # ─────────────────────────────────────────────
 
 with st.sidebar:
+    st.markdown("### 🔑 HuggingFace Token")
+    hf_token = st.text_input(
+        "Enter your HF token",
+        type="password",
+        placeholder="hf_..."
+    )
+    st.caption("Get a free token at huggingface.co/settings/tokens")
+
+    st.markdown("---")
     st.markdown("### 📄 Document")
     uploaded_file = st.file_uploader("Upload PDF", type=["pdf"])
 
     if uploaded_file and not st.session_state.indexed:
         if st.button("Index Document"):
-            with st.spinner("Loading and indexing PDF..."):
-                # Save to temp file
+            with st.spinner("Indexing PDF..."):
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                     tmp.write(uploaded_file.read())
                     tmp_path = tmp.name
@@ -210,12 +208,10 @@ with st.sidebar:
                 model      = load_embed_model()
                 embeddings = embed_chunks(model, chunks)
                 collection = store_chunks(chunks, embeddings)
-                llm        = Ollama(model="llama3.2")
 
                 st.session_state.indexed    = True
                 st.session_state.collection = collection
                 st.session_state.model      = model
-                st.session_state.llm        = llm
                 st.session_state.num_chunks = len(chunks)
 
                 os.unlink(tmp_path)
@@ -228,97 +224,83 @@ with st.sidebar:
             st.session_state.indexed    = False
             st.session_state.collection = None
             st.session_state.model      = None
-            st.session_state.llm        = None
             st.rerun()
 
     st.markdown("---")
     st.markdown("### ℹ️ How it works")
     st.markdown("""
-- **Factual** — cosine similarity per claim vs source chunks
-- **Numerical** — number normalization + chunk comparison
+- **Factual** — cosine similarity per claim
+- **Numerical** — number normalization + comparison
 - **Contradiction** — DeBERTa NLI model
 - **Combined** — weighted score (40/35/25)
     """)
     st.markdown("---")
-    st.markdown("**Thresholds**")
     st.markdown("🟢 < 0.4 → Grounded")
     st.markdown("🟡 0.4–0.7 → Uncertain")
     st.markdown("🔴 > 0.7 → Hallucination")
 
 
 # ─────────────────────────────────────────────
-# Main — Q&A + Detection
+# Main
 # ─────────────────────────────────────────────
 
-if not st.session_state.indexed:
+if not hf_token:
+    st.info("Enter your HuggingFace token in the sidebar to get started.")
+elif not st.session_state.indexed:
     st.info("Upload a PDF and click **Index Document** to get started.")
 else:
-    question = st.text_input("Ask a question about your document", placeholder="type here")
+    question = st.text_input(
+        "Ask a question about your document",
+        placeholder="e.g. What was NVIDIA's revenue in Q4 FY2024?"
+    )
 
     if st.button("Analyze") and question.strip():
         model      = st.session_state.model
         collection = st.session_state.collection
-        llm        = st.session_state.llm
 
-        # Phase 1 — RAG
-        with st.spinner("Retrieving relevant chunks..."):
+        with st.spinner("Retrieving and generating answer..."):
             top_chunks = retrieve(question, model, collection)
-            prompt = f"""You are a precise question-answering assistant.
-Answer the question using ONLY the information in the context below.
-If the answer is not in the context, say: "This information is not in the provided document."
-Do NOT add anything that is not in the context.
+            answer     = generate_answer(question, top_chunks, hf_token)
 
-CONTEXT:
-{"---".join(top_chunks)}
-
-QUESTION:
-{question}
-
-ANSWER:"""
-
-        with st.spinner("Generating answer..."):
-            answer = llm.invoke(prompt)
-
-        # Show answer
         st.markdown("### 💬 Answer")
         st.markdown(f'<div class="answer-box">{answer}</div>', unsafe_allow_html=True)
 
-        # Phases 2-5 — Detection
-        with st.spinner("Running hallucination checks..."):
-            factual_results      = run_factual_check(answer, model, collection, question)
-            numerical_results    = run_numerical_check(answer, model, collection, question)
-            contradiction_results = run_contradiction_check(answer, model, collection, question)
-
-            sentences = [s.strip() for s in sent_tokenize(answer) if len(s.strip()) > 3]
-            scores    = compute_confidence_scores(
-                sentences,
-                factual_results,
-                numerical_results,
-                contradiction_results
-            )
-
-        # Show results
-        st.markdown("---")
-        st.markdown("### 🧪 Hallucination Analysis")
-
-        if not scores:
-            st.warning("No sentences could be analyzed.")
+        if is_not_found_answer(answer):
+            st.info("Answer not found in document — skipping hallucination checks.")
         else:
-            # Per-sentence breakdown
-            for s in scores:
-                if s.verdict == "GROUNDED":
-                    card_class   = "verdict-green"
-                    icon         = "🟢"
-                elif s.verdict == "UNCERTAIN":
-                    card_class   = "verdict-yellow"
-                    icon         = "🟡"
-                else:
-                    card_class   = "verdict-red"
-                    icon         = "🔴"
+            with st.spinner("Running hallucination checks..."):
+                factual_results       = run_factual_check(answer, model, collection, question)
+                numerical_results     = run_numerical_check(answer, model, collection, question)
+                contradiction_results = run_contradiction_check(answer, model, collection, question)
 
-                numerical_str = f"Numerical: <span>{s.numerical_score}</span>" if s.has_numerical else "Numerical: <span>N/A</span>"
+                sentences = [s.strip() for s in sent_tokenize(answer) if len(s.strip()) > 3]
+                scores    = compute_confidence_scores(
+                    sentences,
+                    factual_results,
+                    numerical_results,
+                    contradiction_results
+                )
 
-                st.markdown(f"""
+            st.markdown("---")
+            st.markdown("### 🧪 Hallucination Analysis")
+
+            if not scores:
+                st.warning("No sentences could be analyzed.")
+            else:
+                for s in scores:
+                    if s.verdict == "GROUNDED":
+                        card_class = "verdict-green"
+                        icon       = "🟢"
+                    elif s.verdict == "UNCERTAIN":
+                        card_class = "verdict-yellow"
+                        icon       = "🟡"
+                    else:
+                        card_class = "verdict-red"
+                        icon       = "🔴"
+
+                    numerical_str = f"Numerical: <span>{s.numerical_score}</span>" if s.has_numerical else "Numerical: <span>N/A</span>"
+
+                    st.markdown(f"""
 <div class="verdict-card {card_class}">
     <div>{icon} <strong>{s.verdict}</strong> &nbsp; <span class="score-badge">combined: {s.combined_score}</span></div>
     <div class="sentence-text">{s.sentence}</div>
@@ -330,24 +312,23 @@ ANSWER:"""
 </div>
 """, unsafe_allow_html=True)
 
-            # Overall verdict
-            st.markdown("---")
-            avg_score = round(sum(s.combined_score for s in scores) / len(scores), 4)
+                st.markdown("---")
+                avg_score = round(sum(s.combined_score for s in scores) / len(scores), 4)
 
-            if avg_score < 0.4:
-                overall_class  = "overall-green"
-                overall_icon   = "🟢"
-                overall_label  = "GROUNDED"
-            elif avg_score < 0.7:
-                overall_class  = "overall-yellow"
-                overall_icon   = "🟡"
-                overall_label  = "UNCERTAIN"
-            else:
-                overall_class  = "overall-red"
-                overall_icon   = "🔴"
-                overall_label  = "HALLUCINATION"
+                if avg_score < 0.4:
+                    overall_class = "overall-green"
+                    overall_icon  = "🟢"
+                    overall_label = "GROUNDED"
+                elif avg_score < 0.7:
+                    overall_class = "overall-yellow"
+                    overall_icon  = "🟡"
+                    overall_label = "UNCERTAIN"
+                else:
+                    overall_class = "overall-red"
+                    overall_icon  = "🔴"
+                    overall_label = "HALLUCINATION"
 
-            st.markdown(f"""
+                st.markdown(f"""
 <div class="overall-box {overall_class}">
     <div style="font-size: 2rem">{overall_icon}</div>
     <div style="font-size: 1.2rem; font-weight: 600; margin: 4px 0">{overall_label}</div>
@@ -355,12 +336,7 @@ ANSWER:"""
 </div>
 """, unsafe_allow_html=True)
 
-            # Summary stats
-            col1, col2, col3 = st.columns(3)
-            grounded      = sum(1 for s in scores if s.verdict == "GROUNDED")
-            uncertain     = sum(1 for s in scores if s.verdict == "UNCERTAIN")
-            hallucination = sum(1 for s in scores if s.verdict == "HALLUCINATION")
-
-            col1.metric("🟢 Grounded",       grounded)
-            col2.metric("🟡 Uncertain",      uncertain)
-            col3.metric("🔴 Hallucination",  hallucination)
+                col1, col2, col3 = st.columns(3)
+                col1.metric("🟢 Grounded",      sum(1 for s in scores if s.verdict == "GROUNDED"))
+                col2.metric("🟡 Uncertain",     sum(1 for s in scores if s.verdict == "UNCERTAIN"))
+                col3.metric("🔴 Hallucination", sum(1 for s in scores if s.verdict == "HALLUCINATION"))
