@@ -150,13 +150,12 @@ ANSWER:"""
         token=hf_token
     )
 
-    response = client.text_generation(
-        prompt,
-        max_new_tokens=300,
-        temperature=0.1,
-        do_sample=False
+    response = client.chat_completion(
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=300,
+        temperature=0.1
     )
-    return response.strip()
+    return response.choices[0].message.content.strip()
 
 
 # ─────────────────────────────────────────────
