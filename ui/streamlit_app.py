@@ -146,9 +146,9 @@ QUESTION:
 ANSWER:"""
 
     client = InferenceClient(
-        model="mistralai/Mistral-7B-Instruct-v0.3",
-        token=hf_token
-    )
+    model="HuggingFaceH4/zephyr-7b-beta",
+    token=hf_token
+)
 
     response = client.chat_completion(
         messages=[{"role": "user", "content": prompt}],
