@@ -1,3 +1,13 @@
+---
+title: Hallucination RAG Pipeline
+emoji: 🔍
+colorFrom: blue
+colorTo: red
+sdk: docker
+app_file: app.py
+pinned: false
+---
+
 # Hallucination RAG-Pipeline
 
 A modular hallucination verification layer for RAG systems. Sits on top of any LLM and verifies every answer against the source document using three independent detection methods, returning a single confidence score per claim.
