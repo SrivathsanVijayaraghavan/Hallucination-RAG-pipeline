@@ -130,6 +130,8 @@ def is_not_found_answer(answer: str) -> bool:
 # ─────────────────────────────────────────────
 
 def generate_answer(question: str, chunks: list[str], hf_token: str) -> str:
+    from openai import OpenAI
+
     context = "\n\n---\n\n".join(chunks)
     prompt = f"""You are a precise question-answering assistant.
 Answer the question using ONLY the information in the context below.
@@ -145,14 +147,16 @@ QUESTION:
 
 ANSWER:"""
 
-    client = InferenceClient(token=hf_token)
+    client = OpenAI(
+        base_url="https://router.huggingface.co/v1",
+        api_key=hf_token
+    )
 
-    response = client.chat_completion(
+    response = client.chat.completions.create(
         model="meta-llama/Llama-3.1-8B-Instruct",
         messages=[{"role": "user", "content": prompt}],
         max_tokens=300,
-        temperature=0.1,
-        provider="groq"
+        temperature=0.1
     )
     return response.choices[0].message.content.strip()
 
