@@ -145,12 +145,10 @@ QUESTION:
 
 ANSWER:"""
 
-    client = InferenceClient(
-    model="HuggingFaceH4/zephyr-7b-beta",
-    token=hf_token
-)
+    client = InferenceClient(token=hf_token)
 
     response = client.chat_completion(
+        model="meta-llama/Llama-3.2-3B-Instruct",
         messages=[{"role": "user", "content": prompt}],
         max_tokens=300,
         temperature=0.1
