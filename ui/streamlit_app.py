@@ -148,10 +148,11 @@ ANSWER:"""
     client = InferenceClient(token=hf_token)
 
     response = client.chat_completion(
-        model="meta-llama/Llama-3.2-3B-Instruct",
+        model="meta-llama/Llama-3.1-8B-Instruct",
         messages=[{"role": "user", "content": prompt}],
         max_tokens=300,
-        temperature=0.1
+        temperature=0.1,
+        provider="groq"
     )
     return response.choices[0].message.content.strip()
 
